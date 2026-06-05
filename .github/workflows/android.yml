@@ -23,11 +23,13 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      # TRUCKJE: We dwingen het project om SQLCipherversie 4.5.5 te gebruiken in plaats van de corrupte 4.5.4
-      - name: Fix Corrupt SQLCipher Version Dependency
+      # HARDCORE FIX: We scannen ELK bestand in de repository en veranderen handmatig 4.5.4 naar 4.5.5
+      - name: Force Hardcoded SQLCipher Version Upgrade
         run: |
-          find . -name "build.gradle" -exec sed -i 's/android-database-sqlcipher:4.5.4/android-database-sqlcipher:4.5.5/g' {} +
-          find . -name "build.gradle" -exec sed -i "s/'sqlcipher_version', '4.5.4'/'sqlcipher_version', '4.5.5'/g" {} +
+          echo "Vervangen van SQLCipher versies in alle bestanden..."
+          find . -type f -exec sed -i 's/android-database-sqlcipher:4.5.4/android-database-sqlcipher:4.5.5/g' {} +
+          find . -type f -exec sed -i 's/"4.5.4"/"4.5.5"/g' {} +
+          find . -type f -exec sed -i "s/'4.5.4'/'4.5.5'/g" {} +
 
       - name: Pre-create Dependency Folders
         run: |
@@ -52,19 +54,20 @@ jobs:
           echo "RELEASE_KEY_ALIAS=alias" >> gradle.properties
           echo "RELEASE_KEY_PASSWORD=mypassword" >> gradle.properties
 
-      # We bouwen nu alle apps. De || true zorgt dat we doorgaan als er één app specifieke fouten heeft
-      - name: Build All Pro Release APKs
+      # We hebben de foutverbergers nu ECHT weggehaald. Als er nu iets faalt, stopt de build meteen en zien we de echte fout.
+      - name: Build Opaque Pro Release
         run: |
           chmod +x gradlew
-          ./gradlew :bVNC-app:assembleRelease || echo "bVNC failed"
-          ./gradlew :aRDP-app:assembleRelease || echo "aRDP failed"
-          ./gradlew :aSPICE-app:assembleRelease || echo "aSPICE failed"
-          ./gradlew :Opaque-app:assembleRelease || echo "Opaque failed"
+          ./gradlew :Opaque-app:assembleRelease
+
+      - name: Build Remaining Pro Release APKs
+        run: |
+          ./gradlew :bVNC-app:assembleRelease :aRDP-app:assembleRelease :aSPICE-app:assembleRelease
 
       - name: Collect All APKs
         run: |
           mkdir -p final-apks
-          find . -name "*release*.apk" -exec cp {} final-apks/ \; || true
+          find . -name "*release*.apk" -exec cp {} final-apks/ \;
 
       - name: Upload All Pro APKs Artifact
         uses: actions/upload-artifact@v4
