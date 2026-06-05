@@ -13,6 +13,7 @@ jobs:
         with:
           submodules: 'recursive'
 
+      # We dwingen de GitHub Actions server hier om Java 17 te gebruiken
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -46,22 +47,24 @@ jobs:
           echo "RELEASE_KEY_ALIAS=alias" >> gradle.properties
           echo "RELEASE_KEY_PASSWORD=mypassword" >> gradle.properties
 
-      # ULTIEME BLOCKER: We vertellen Gradle op het hoogste niveau dat hij SQLCipher NOOIT online mag downloaden
-      - name: Force Block Online SQLCipher Download
+      # We blokkeren SQLCipher online EN we dwingen de compiler om overal Java 17 (target 1.8/17 compatibility) aan te houden
+      - name: Force Java 17 and Block Online SQLCipher
         run: |
           echo "android.enableJetifier=false" >> gradle.properties
-          find . -name "build.gradle" -exec sed -i '/sqlcipher/d' {} \;
           
-          # We voegen een globale regel toe aan de root build.gradle om de dependency overal te blokkeren
+          # Dit dwingt de Java compiler-taken in Gradle om ook op Java 17 te blijven in plaats van naar 21 te springen
+          echo "org.gradle.java.home=${JAVA_HOME_17_X64}" >> gradle.properties
+          
+          find . -name "build.gradle" -exec sed -i '/sqlcipher/d' {} \;
           sed -i '/allprojects {/a \    configurations.all { configurations -> configurations.exclude group: "utils.sqlite", module: "android-database-sqlcipher" \n configurations.exclude group: "net.zetetic", module: "android-database-sqlcipher" }' build.gradle
 
-      # Nu bouwen we specifiek Opaque eerst om te zien of de downloadfout weg is
+      # Nu starten we de build weer. Eerst Opaque.
       - name: Build Opaque Pro Release
         run: |
           chmod +x gradlew
           ./gradlew :Opaque-app:assembleRelease
 
-      # Als Opaque lukt, bouwen we de rest
+      # Daarna de rest
       - name: Build Remaining Pro Release APKs
         run: |
           ./gradlew :bVNC-app:assembleRelease :aRDP-app:assembleRelease :aSPICE-app:assembleRelease
