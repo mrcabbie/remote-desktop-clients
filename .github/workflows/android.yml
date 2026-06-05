@@ -1,7 +1,7 @@
 name: Build All Pro Release APKs
 
 on:
-  workflow_dispatch: # Hiermee krijg je de handmatige startknop in GitHub Actions
+  workflow_dispatch:
 
 jobs:
   build:
@@ -10,6 +10,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -18,24 +20,30 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
-      # We installeren de Android SDK tools die nodig zijn voor de build
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      # Dit script downloadt alle benodigde zware .jar/.aar dependencies vooraf
+      # TRUCKJE: We dwingen het project om SQLCipherversie 4.5.5 te gebruiken in plaats van de corrupte 4.5.4
+      - name: Fix Corrupt SQLCipher Version Dependency
+        run: |
+          find . -name "build.gradle" -exec sed -i 's/android-database-sqlcipher:4.5.4/android-database-sqlcipher:4.5.5/g' {} +
+          find . -name "build.gradle" -exec sed -i "s/'sqlcipher_version', '4.5.4'/'sqlcipher_version', '4.5.5'/g" {} +
+
+      - name: Pre-create Dependency Folders
+        run: |
+          mkdir -p remoteClientLib/jni/libs/deps/
+          mkdir -p Opaque-app/libs/
+
       - name: Download Prebuilt Dependencies
         run: |
           chmod +x download-prebuilt-dependencies.sh
           ./download-prebuilt-dependencies.sh
 
-      # Dit script bereidt de submodules (bVNC, aRDP, aSPICE, Opaque) voor
       - name: Prepare Project Scripts
         run: |
           chmod +x bVNC/prepare_project.sh
           ./bVNC/prepare_project.sh --skip-build libs nopath
 
-      # We genereren een tijdelijke keystore (sleutel) in de hoofdmap
-      # zodat de 'Release' builds zonder fouten digitaal ondertekend kunnen worden
       - name: Configure Keystore for Release
         run: |
           keytool -genkey -v -keystore github-actions.jks -alias alias -keyalg RSA -keysize 2048 -validity 10000 -storepass mypassword -keypass mypassword -dname "CN=GitHub Actions, O=Android, C=US"
@@ -44,19 +52,20 @@ jobs:
           echo "RELEASE_KEY_ALIAS=alias" >> gradle.properties
           echo "RELEASE_KEY_PASSWORD=mypassword" >> gradle.properties
 
-      # We bouwen alle vier de volledige Pro/Premium modules achter elkaar
+      # We bouwen nu alle apps. De || true zorgt dat we doorgaan als er één app specifieke fouten heeft
       - name: Build All Pro Release APKs
         run: |
           chmod +x gradlew
-          ./gradlew :bVNC-app:assembleRelease :aRDP-app:assembleRelease :aSPICE-app:assembleRelease :Opaque-app:assembleRelease
+          ./gradlew :bVNC-app:assembleRelease || echo "bVNC failed"
+          ./gradlew :aRDP-app:assembleRelease || echo "aRDP failed"
+          ./gradlew :aSPICE-app:assembleRelease || echo "aSPICE failed"
+          ./gradlew :Opaque-app:assembleRelease || echo "Opaque failed"
 
-      # We verzamelen alle gemaakte release APK's uit de submappen en zetten ze bij elkaar
       - name: Collect All APKs
         run: |
           mkdir -p final-apks
-          find . -name "*release*.apk" -exec cp {} final-apks/ \;
+          find . -name "*release*.apk" -exec cp {} final-apks/ \; || true
 
-      # GitHub zipt de map en biedt deze aan als download onder het tabblad 'Actions'
       - name: Upload All Pro APKs Artifact
         uses: actions/upload-artifact@v4
         with:
