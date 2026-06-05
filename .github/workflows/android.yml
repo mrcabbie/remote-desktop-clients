@@ -1,0 +1,64 @@
+name: Build All Pro Release APKs
+
+on:
+  workflow_dispatch: # Hiermee krijg je de handmatige startknop in GitHub Actions
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+          cache: 'gradle'
+
+      # We installeren de Android SDK tools die nodig zijn voor de build
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Dit script downloadt alle benodigde zware .jar/.aar dependencies vooraf
+      - name: Download Prebuilt Dependencies
+        run: |
+          chmod +x download-prebuilt-dependencies.sh
+          ./download-prebuilt-dependencies.sh
+
+      # Dit script bereidt de submodules (bVNC, aRDP, aSPICE, Opaque) voor
+      - name: Prepare Project Scripts
+        run: |
+          chmod +x bVNC/prepare_project.sh
+          ./bVNC/prepare_project.sh --skip-build libs nopath
+
+      # We genereren een tijdelijke keystore (sleutel) in de hoofdmap
+      # zodat de 'Release' builds zonder fouten digitaal ondertekend kunnen worden
+      - name: Configure Keystore for Release
+        run: |
+          keytool -genkey -v -keystore github-actions.jks -alias alias -keyalg RSA -keysize 2048 -validity 10000 -storepass mypassword -keypass mypassword -dname "CN=GitHub Actions, O=Android, C=US"
+          echo "RELEASE_STORE_FILE=../github-actions.jks" >> gradle.properties
+          echo "RELEASE_STORE_PASSWORD=mypassword" >> gradle.properties
+          echo "RELEASE_KEY_ALIAS=alias" >> gradle.properties
+          echo "RELEASE_KEY_PASSWORD=mypassword" >> gradle.properties
+
+      # We bouwen alle vier de volledige Pro/Premium modules achter elkaar
+      - name: Build All Pro Release APKs
+        run: |
+          chmod +x gradlew
+          ./gradlew :bVNC-app:assembleRelease :aRDP-app:assembleRelease :aSPICE-app:assembleRelease :Opaque-app:assembleRelease
+
+      # We verzamelen alle gemaakte release APK's uit de submappen en zetten ze bij elkaar
+      - name: Collect All APKs
+        run: |
+          mkdir -p final-apks
+          find . -name "*release*.apk" -exec cp {} final-apks/ \;
+
+      # GitHub zipt de map en biedt deze aan als download onder het tabblad 'Actions'
+      - name: Upload All Pro APKs Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: All-Pro-Release-APKs
+          path: final-apks/
