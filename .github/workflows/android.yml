@@ -55,10 +55,11 @@ jobs:
         run: |
           echo "android.enableJetifier=false" >> gradle.properties
           
-          # We dwingen Java 17 af voor Java-bestanden in alle modules
+          # Dwing de Java-compiler naar versie 17 in alle build.gradle bestanden
           find . -name "build.gradle" -exec sed -i '/android {/a \    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }' {} \;
+          find . -name "build.gradle" -exec sed -i '/android {/a \    java {\n        toolchain {\n            languageVersion = JavaLanguageVersion.of(17)\n        }\n    }' {} \;
           
-          # We dwingen Kotlin 17 alleen af als de module daadwerkelijk Kotlin gebruikt
+          # Dwing Kotlin 17 af
           find . -name "build.gradle" -exec grep -q "kotlin" {} \; -exec sed -i '/android {/a \    kotlinOptions {\n        jvmTarget = "17"\n    }' {} \;
           
           # Blokkeer de corrupte SQLCipher
@@ -85,4 +86,5 @@ jobs:
         with:
           name: All-Pro-Release-APKs
           path: final-apks/
-          
+
+
