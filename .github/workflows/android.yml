@@ -1,0 +1,82 @@
+name: Build All Pro Release APKs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Pre-create Dependency Folders
+        run: |
+          mkdir -p remoteClientLib/jni/libs/deps/
+          mkdir -p Opaque-app/libs/
+
+      - name: Download Prebuilt Dependencies
+        run: |
+          chmod +x download-prebuilt-dependencies.sh
+          ./download-prebuilt-dependencies.sh
+
+      - name: Prepare Project Scripts
+        run: |
+          chmod +x bVNC/prepare_project.sh
+          ./bVNC/prepare_project.sh --skip-build libs nopath
+
+      - name: Configure Keystore for Release
+        run: |
+          keytool -genkey -v -keystore github-actions.jks -alias alias -keyalg RSA -keysize 2048 -validity 10000 -storepass mypassword -keypass mypassword -dname "CN=GitHub Actions, O=Android, C=US"
+          echo "RELEASE_STORE_FILE=../github-actions.jks" >> gradle.properties
+          echo "RELEASE_STORE_PASSWORD=mypassword" >> gradle.properties
+          echo "RELEASE_KEY_ALIAS=alias" >> gradle.properties
+          echo "RELEASE_KEY_PASSWORD=mypassword" >> gradle.properties
+
+      - name: Force Java 17 Toolchain & Block SQLCipher
+        run: |
+          echo "android.enableJetifier=false" >> gradle.properties
+          
+          # We dwingen Java 17 af voor Java-bestanden in alle modules
+          find . -name "build.gradle" -exec sed -i '/android {/a \    compileOptions {\n        sourceCompatibility JavaVersion.VERSION_17\n        targetCompatibility JavaVersion.VERSION_17\n    }' {} \;
+          
+          # We dwingen Kotlin 17 alleen af als de module daadwerkelijk Kotlin gebruikt
+          find . -name "build.gradle" -exec grep -q "kotlin" {} \; -exec sed -i '/android {/a \    kotlinOptions {\n        jvmTarget = "17"\n    }' {} \;
+          
+          # Blokkeer de corrupte SQLCipher
+          find . -name "build.gradle" -exec sed -i '/sqlcipher/d' {} \;
+          sed -i '/allprojects {/a \    configurations.all { configurations -> configurations.exclude group: "utils.sqlite", module: "android-database-sqlcipher" \n configurations.exclude group: "net.zetetic", module: "android-database-sqlcipher" }' build.gradle
+
+      # Nu bouwen we de apps
+      - name: Build Opaque Pro Release
+        run: |
+          chmod +x gradlew
+          ./gradlew :Opaque-app:assembleRelease
+
+      - name: Build Remaining Pro Release APKs
+        run: |
+          ./gradlew :bVNC-app:assembleRelease :aRDP-app:assembleRelease :aSPICE-app:assembleRelease
+
+      - name: Collect All APKs
+        run: |
+          mkdir -p final-apks
+          find . -name "*release*.apk" -exec cp {} final-apks/ \;
+
+      - name: Upload All Pro APKs Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: All-Pro-Release-APKs
+          path: final-apks/
+          
